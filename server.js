@@ -1,62 +1,130 @@
-// 1. Importer de værktøjer, vi skal bruge
+// --- 1. IMPORTER VÆRKTØJER ---
 const express = require('express');
 const cors = require('cors');
+const multer = require('multer');
+const { ConfidentialClientApplication } = require('@azure/msal-node');
+const { Client } = require('@microsoft/microsoft-graph-client');
+require('isomorphic-fetch'); // Nødvendig polyfill for Graph Client
 
-// 2. Opret en instans af vores Express-app (vores server)
+// --- 2. KONFIGURATION (LÆSER FRA SIKRE ENVIRONMENT VARIABLES) ---
+// Disse værdier skal du indsætte i "Environment"-sektionen på Render.com
+const config = {
+    auth: {
+        clientId: process.env.CLIENT_ID,
+        authority: `https://login.microsoftonline.com/${process.env.TENANT_ID}`,
+        clientSecret: process.env.CLIENT_SECRET,
+    },
+    sharePoint: {
+        siteId: process.env.SITE_ID,
+        driveId: process.env.DRIVE_ID,
+        // Vi opretter et "opslagsværk" (map) for at finde den rigtige mappe-ID
+        // baseret på, hvilken side brugeren uploader fra.
+        folderIds: {
+            personale: process.env.FOLDER_ID_PERSONALE,
+            medarbejdere: process.env.FOLDER_ID_MEDARBEJDERE,
+            // Tilføj flere her, f.eks.:
+            // gdpr: process.env.FOLDER_ID_GDPR, 
+        }
+    }
+};
+
+// --- 3. INITIALISER MICROSOFT AUTH OG GRAPH CLIENT ---
+const cca = new ConfidentialClientApplication(config.auth);
+
+// Funktion til at få en "autentificeret" Graph Client, der kan tale med Microsoft
+async function getGraphClient() {
+    // Anskaf en "adgangsbillet" (token) fra Microsoft ved hjælp af vores hemmeligheder
+    const authResponse = await cca.acquireTokenByClientCredential({
+        scopes: ['https://graph.microsoft.com/.default'],
+    });
+
+    // Initialiser Graph Client med adgangsbilletten
+    return Client.init({
+        authProvider: (done) => {
+            done(null, authResponse.accessToken);
+        },
+    });
+}
+
+// --- 4. SERVER OPSÆTNING ---
 const app = express();
-const PORT = 8000; // Vi vælger, at vores back-end skal køre på port 8000
+// Render sætter selv PORT-variablen. Vi lytter til den, ellers bruger vi 8000 lokalt.
+const PORT = process.env.PORT || 8000; 
 
-// 3. Konfiguration
-// Tillad, at vores front-end (fra en anden port) kan sende forespørgsler
-app.use(cors()); 
-// Tillad, at serveren kan modtage og læse JSON-data i forespørgsler
-app.use(express.json()); 
+app.use(cors());
+app.use(express.json());
 
-// 4. Vores FALSKE bruger-database
-// I en rigtig app ville dette komme fra en rigtig database
+// Multer konfigureres til at holde den uploadede fil i hukommelsen
+const upload = multer({ storage: multer.memoryStorage() });
+
+// Falsk bruger-database til vores simple login
 const users = [
-  { id: 1, email: 'peter@gutfelt.com', password: '123', name: 'Peter Jensen', role: 'Medarbejder' },
-  { id: 2, email: 'susanne@gutfelt.com', password: '123', name: 'Susanne Nielsen', role: 'HR-redaktør' }
+    { id: 1, email: 'peter@gutfelt.com', password: '123', name: 'Peter Jensen', role: 'Medarbejder' },
+    { id: 2, email: 'susanne@gutfelt.com', password: '123', name: 'Susanne Nielsen', role: 'HR-redaktør' }
 ];
 
-// 5. DEFINER VORES API ENDPOINTS (vores "døre")
+// --- 5. API ENDPOINTS ---
 
-// Et simpelt test-endpoint på rod-URL'en
+// Simpelt test-endpoint
 app.get('/', (req, res) => {
-  res.send('Hej fra Gutfelt Back-end Server!');
+    res.send('Hej fra Gutfelt Back-end Server! Serveren er live.');
 });
 
-// Vores rigtige LOGIN endpoint
-// Den lytter efter POST-forespørgsler på adressen /api/login
+// Login endpoint (uændret)
 app.post('/api/login', (req, res) => {
-  // Hent email og password fra den forespørgsel, som front-end'en sender
-  const { email, password } = req.body;
-
-  console.log(`Modtog login-forsøg for email: ${email}`);
-
-  // Find en bruger i vores falske database, der matcher email'en
-  const user = users.find(u => u.email === email);
-
-  // Tjek, om brugeren blev fundet, og om passwordet matcher
-  if (user && user.password === password) {
-    // SUCCES! Brugeren findes, og password er korrekt.
-    console.log(`Login succesfuldt for: ${user.name}`);
-    // Send brugerens data (uden password!) tilbage til front-end'en
-    res.json({
-      id: user.id,
-      name: user.name,
-      email: user.email,
-      role: user.role
-    });
-  } else {
-    // FEJL! Enten forkert email eller password.
-    console.log('Login fejlede: Forkert email eller password.');
-    // Send en fejlstatus (401 Unauthorized) og en fejlbesked tilbage
-    res.status(401).json({ message: 'Forkert email eller password.' });
-  }
+    const { email, password } = req.body;
+    const user = users.find(u => u.email === email);
+    if (user && user.password === password) {
+        res.json({ id: user.id, name: user.name, email: user.email, role: user.role });
+    } else {
+        res.status(401).json({ message: 'Forkert email eller password.' });
+    }
 });
 
-// 6. Start serveren, så den lytter efter forespørgsler
+// UPLOAD ENDPOINT - Med SharePoint integration
+// URL'en indeholder nu en "kategori", f.eks. /api/upload/personale
+app.post('/api/upload/:category', upload.single('document'), async (req, res) => {
+    if (!req.file) {
+        return res.status(400).json({ message: 'Ingen fil blev uploadet.' });
+    }
+    
+    // Find den rigtige Folder ID baseret på kategorien i URL'en
+    const category = req.params.category;
+    const folderId = config.sharePoint.folderIds[category];
+
+    if (!folderId) {
+        return res.status(400).json({ message: `Ukendt upload-kategori: ${category}` });
+    }
+
+    try {
+        console.log(`Modtog fil til kategori '${category}'. Forsøger upload til SharePoint...`);
+        const graphClient = await getGraphClient();
+        
+        // Byg den korrekte sti i SharePoint til upload
+        const uploadPath = `/drives/${config.sharePoint.driveId}/items/${folderId}:/${req.file.originalname}:/content`;
+
+        // Upload filens buffer (indholdet) til SharePoint
+        const response = await graphClient.api(uploadPath).put(req.file.buffer);
+
+        console.log('Fil uploadet succesfuldt til SharePoint!');
+        
+        res.status(201).json({
+            message: 'Fil uploadet succesfuldt til SharePoint!',
+            file: {
+                name: response.name,
+                path: response['@microsoft.graph.downloadUrl'], // Et sikkert, midlertidigt download-link
+                size: response.size
+            }
+        });
+
+    } catch (error) {
+        console.error('Fejl under upload til SharePoint:', error.message);
+        res.status(500).json({ message: 'Der skete en serverfejl under upload.' });
+    }
+});
+
+
+// --- 6. START SERVER ---
 app.listen(PORT, () => {
-  console.log(`Back-end serveren kører nu på http://localhost:${PORT}`);
+    console.log(`Back-end serveren kører nu på port ${PORT}`);
 });
