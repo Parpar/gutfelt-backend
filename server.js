@@ -1,4 +1,3 @@
-```javascript
 require('dotenv').config(); // Læser hemmeligheder fra .env-filen
 
 // --- 1. IMPORTER VÆRKTØJER ---
@@ -48,7 +47,8 @@ app.post('/api/login', async (req, res) => {
             .single();
 
         if (error || !user) {
-            console.log(`Login fejlede: Bruger ikke fundet for email: ${email}`);
+            // Her var fejlen før. Nu er den korrekt.
+            console.log(`Login-forsøg for ukendt bruger: ${email}`);
             return res.status(401).json({ message: 'Forkert email eller password.' });
         }
 
@@ -79,4 +79,3 @@ app.post('/api/login', async (req, res) => {
 app.listen(PORT, () => {
     console.log(`Back-end serveren kører nu på port ${PORT}`);
 });
-```
