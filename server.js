@@ -1,12 +1,21 @@
+```javascript
+require('dotenv').config(); // Læser hemmeligheder fra .env-filen
+
 // --- 1. IMPORTER VÆRKTØJER ---
 const express = require('express');
 const cors = require('cors');
-const { createClient } = require('@supabase/supabase-js'); // Supabase
-const bcrypt = require('bcryptjs'); // Password-kryptering
+const { createClient } = require('@supabase/supabase-js');
+const bcrypt = require('bcryptjs');
 
 // --- 2. KONFIGURATION (LÆSER FRA SIKRE ENVIRONMENT VARIABLES) ---
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_KEY;
+
+// Tjek om nøglerne er indlæst korrekt
+if (!supabaseUrl || !supabaseKey) {
+    console.error("Fejl: Supabase URL eller Key mangler. Tjek dine .env eller Environment Variables.");
+    process.exit(1); // Stop serveren, hvis konfigurationen mangler
+}
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 // --- 3. SERVER OPSÆTNING ---
@@ -22,7 +31,7 @@ app.get('/', (req, res) => {
     res.send('Hej fra Gutfelt Back-end Server! Forbundet til Supabase.');
 });
 
-// LOGIN ENDPOINT - Nu med database og kryptering
+// LOGIN ENDPOINT - Med database og kryptering
 app.post('/api/login', async (req, res) => {
     const { email, password } = req.body;
 
@@ -36,21 +45,18 @@ app.post('/api/login', async (req, res) => {
             .from('users')
             .select('*')
             .eq('email', email)
-            .single(); // .single() forventer kun én eller ingen resultater
+            .single();
 
         if (error || !user) {
-            console.log('Login fejlede: Bruger ikke fundet.');
+            console.log(`Login fejlede: Bruger ikke fundet for email: ${email}`);
             return res.status(401).json({ message: 'Forkert email eller password.' });
         }
 
         // Sammenlign det indtastede password med det krypterede password i databasen
-        const passwordIsValid = bcrypt.compareSync(
-            password,
-            user.password // Det hashede password fra databasen
-        );
+        const passwordIsValid = bcrypt.compareSync(password, user.password);
 
         if (!passwordIsValid) {
-            console.log('Login fejlede: Forkert password.');
+            console.log(`Login fejlede: Forkert password for bruger: ${email}`);
             return res.status(401).json({ message: 'Forkert email eller password.' });
         }
 
@@ -73,3 +79,4 @@ app.post('/api/login', async (req, res) => {
 app.listen(PORT, () => {
     console.log(`Back-end serveren kører nu på port ${PORT}`);
 });
+```
