@@ -22,20 +22,39 @@ const msalConfig = {
     }
 };
 
-// --- KORREKT SHAREPOINT KONFIGURATION ---
-// Denne sektion er nu opdateret til at matche dine Keys på Render.com
+// --- FULDT OPDATERET SHAREPOINT KONFIGURATION ---
 const sharePointConfig = {
     siteId: process.env.SITE_ID,
     driveId: process.env.DRIVE_ID,
     folderIds: {
-        firmapolitikker: process.env.FOLDER_ID_Firmapolitikker,
-        medarbejdere: process.env.FOLDER_ID_MEDARBEJDERE,
-        personale: process.env.FOLDER_ID_Personale,
-        samarbejdspartnere: process.env.FOLDER_ID_Samarbejdspartnere,
-        standarder: process.env.FOLDER_ID_Standarder
+        // Firmapolitikker
+        fakturering: process.env.FOLDER_ID_FAKTURERING,
+        kickoff: process.env.FOLDER_ID_Kickoff,
+        kundehåndtering: process.env.FOLDER_ID_Kundehaandtering,
+        kvalitetsstyring: process.env.FOLDER_ID_Kvalitetsstyringsmanuel,
+        mandagsmøder: process.env.FOLDER_ID_Mandagsmoeder,
+        personalehåndbog: process.env.FOLDER_ID_Personalehaandbog,
+        persondatapolitik: process.env.FOLDER_ID_Persondatapolitik,
+        slettepolitik: process.env.FOLDER_ID_Slettepolitik,
+        whistleblower: process.env.FOLDER_ID_Whistleblowordning,
+        // Medarbejdere
+        fjernlager: process.env.FOLDER_ID_Fjernlager,
+        kompetenceskema: process.env.FOLDER_ID_Kompetenceskema,
+        kursusmaterialer: process.env.FOLDER_ID_Kursusmaterialer,
+        planlægning: process.env.FOLDER_ID_Planlaegning,
+        // Samarbejdspartnere
+        bygning: process.env.FOLDER_ID_Bygning_faciliteter_frokost,
+        rådgivere: process.env.FOLDER_ID_Raadgivere,
+        systemer: process.env.FOLDER_ID_Systemer,
+        // Standarder
+        aftalebreve: process.env.FOLDER_ID_Aftalebreve,
+        engagement: process.env.FOLDER_ID_Engagementsforespørgsel,
+        habilitet: process.env.FOLDER_ID_Habilitet_og_hvidvask,
+        protokollat: process.env.FOLDER_ID_Protokollat_erklaering_og_referat,
+        tjeklister: process.env.FOLDER_ID_Tjeklister_og_indeks,
+        oevrige: process.env.FOLDER_ID_Oevrige_skabeloner
     }
 };
-// -----------------------------------------
 
 if (!supabaseUrl || !supabaseKey || !msalConfig.auth.clientId) {
     console.error("Fejl: Kritiske Environment Variables mangler. Tjek Supabase & Azure nøgler.");
@@ -72,6 +91,7 @@ app.post('/api/login', async (req, res) => {
         if (!passwordIsValid) return res.status(401).json({ message: 'Forkert email eller password.' });
         res.json({ id: user.id, name: user.name, email: user.email, role: user.role });
     } catch (err) {
+        console.error('Serverfejl under login:', err);
         res.status(500).json({ message: 'Der skete en serverfejl.' });
     }
 });
@@ -80,20 +100,24 @@ app.post('/api/login', async (req, res) => {
 app.post('/api/upload/:category', upload.single('document'), async (req, res) => {
     if (!req.file) return res.status(400).json({ message: 'Ingen fil blev uploadet.' });
     
-    const category = req.params.category;
+    const category = req.params.category.toLowerCase();
     const folderId = sharePointConfig.folderIds[category];
-    if (!folderId) return res.status(400).json({ message: `Ukendt upload-kategori: ${category}` });
+    if (!folderId) {
+        console.error(`Ukendt kategori modtaget: ${category}`);
+        return res.status(400).json({ message: `Ukendt upload-kategori: ${category}` });
+    }
 
     try {
         const graphClient = await getGraphClient();
         const uploadPath = `/drives/${sharePointConfig.driveId}/items/${folderId}:/${req.file.originalname}:/content`;
         const response = await graphClient.api(uploadPath).put(req.file.buffer);
+        console.log(`Fil uploadet til SharePoint i kategori: ${category}`);
         res.status(201).json({
             message: 'Fil uploadet succesfuldt til SharePoint!',
             file: { name: response.name, path: response['@microsoft.graph.downloadUrl'], size: response.size }
         });
     } catch (error) {
-        console.error('Fejl under upload til SharePoint:', error);
+        console.error(`Fejl under upload til SharePoint for kategori ${category}:`, error);
         res.status(500).json({ message: 'Der skete en serverfejl under upload.' });
     }
 });
