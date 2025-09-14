@@ -26,7 +26,7 @@ const sharePointConfig = {
     folderIds: {
         fakturering: process.env.FOLDER_ID_FAKTURERING,
         kickoff: process.env.FOLDER_ID_KICKOFF,
-        kundehåndtering: process.env.FOLDER_ID_KUNDEHANDTERING,
+        kundehåndtering: process.env.FOLDER_ID_KUNDEHAANDTERING,
         kvalitetsstyring: process.env.FOLDER_ID_KVALITETSSTYRING,
         mandagsmøder: process.env.FOLDER_ID_MANDAGSMOEDER,
         personalehåndbog: process.env.FOLDER_ID_PERSONALEHAANDBOG,
@@ -49,14 +49,8 @@ const sharePointConfig = {
     }
 };
 
-if (!supabaseUrl || !supabaseKey || !msalConfig.auth.clientId) {
-    console.error("Fejl: Kritiske Environment Variables mangler.");
-    process.exit(1);
-}
-
 const supabase = createClient(supabaseUrl, supabaseKey);
 const cca = new ConfidentialClientApplication(msalConfig);
-
 async function getGraphClient() {
     const authResponse = await cca.acquireTokenByClientCredential({ scopes: ['https://graph.microsoft.com/.default'] });
     return Client.init({ authProvider: (done) => done(null, authResponse.accessToken) });
@@ -80,7 +74,6 @@ app.post('/api/login', async (req, res) => {
         if (!passwordIsValid) return res.status(401).json({ message: 'Forkert email eller password.' });
         res.json({ id: user.id, name: user.name, email: user.email, role: user.role });
     } catch (err) {
-        console.error('Serverfejl under login:', err);
         res.status(500).json({ message: 'Der skete en serverfejl.' });
     }
 });
@@ -89,47 +82,28 @@ app.get('/api/documents/:category', async (req, res) => {
     const category = req.params.category.toLowerCase();
     const folderId = sharePointConfig.folderIds[category];
     if (!folderId) return res.status(400).json({ message: `Ukendt kategori: ${category}` });
-
     try {
         const graphClient = await getGraphClient();
         const listPath = `/drives/${sharePointConfig.driveId}/items/${folderId}/children`;
-        const response = await graphClient.api(listPath)
-            .select('id,name,size,@microsoft.graph.downloadUrl')
-            .get();
-        const documents = response.value.map(item => ({
-            id: item.id,
-            name: item.name,
-            path: item['@microsoft.graph.downloadUrl'],
-            size: item.size
-        }));
+        const response = await graphClient.api(listPath).select('id,name,size,@microsoft.graph.downloadUrl').get();
+        const documents = response.value.map(item => ({ id: item.id, name: item.name, path: item['@microsoft.graph.downloadUrl'], size: item.size }));
         res.json(documents);
     } catch (error) {
-        console.error(`Fejl under hentning af dokumenter for kategori ${category}:`, error);
         res.status(500).json({ message: 'Kunne ikke hente dokumenter fra SharePoint.' });
     }
 });
 
 app.post('/api/upload/:category', upload.single('document'), async (req, res) => {
     if (!req.file) return res.status(400).json({ message: 'Ingen fil blev uploadet.' });
-    
     const category = req.params.category.toLowerCase();
     const folderId = sharePointConfig.folderIds[category];
-    if (!folderId) {
-        console.error(`Ukendt kategori modtaget: ${category}`);
-        return res.status(400).json({ message: `Ukendt upload-kategori: ${category}` });
-    }
-
+    if (!folderId) return res.status(400).json({ message: `Ukendt upload-kategori: ${category}` });
     try {
         const graphClient = await getGraphClient();
         const uploadPath = `/drives/${sharePointConfig.driveId}/items/${folderId}:/${req.file.originalname}:/content`;
         const response = await graphClient.api(uploadPath).put(req.file.buffer);
-        console.log(`Fil uploadet til SharePoint i kategori: ${category}`);
-        res.status(201).json({
-            message: 'Fil uploadet succesfuldt til SharePoint!',
-            file: { name: response.name, path: response['@microsoft.graph.downloadUrl'], size: response.size }
-        });
+        res.status(201).json({ message: 'Fil uploadet succesfuldt til SharePoint!', file: { name: response.name, path: response['@microsoft.graph.downloadUrl'], size: response.size } });
     } catch (error) {
-        console.error(`Fejl under upload til SharePoint for kategori ${category}:`, error);
         res.status(500).json({ message: 'Der skete en serverfejl under upload.' });
     }
 });
