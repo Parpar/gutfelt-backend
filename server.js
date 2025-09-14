@@ -24,8 +24,10 @@ const sharePointConfig = {
 };
 
 const newsListId = process.env.NEWS_LIST_ID;
+const calendarId = process.env.CALENDAR_ID;
+const calendarUser = process.env.CALENDAR_USER_EMAIL;
 
-if (!supabaseUrl || !supabaseKey || !msalConfig.auth.clientId || !newsListId) {
+if (!supabaseUrl || !supabaseKey || !msalConfig.auth.clientId || !newsListId || !calendarId || !calendarUser) {
     console.error("Fejl: Kritiske Environment Variables mangler.");
     process.exit(1);
 }
@@ -64,6 +66,8 @@ app.get('/api/news', async (req, res) => {
         const graphClient = await getGraphClient();
         const response = await graphClient.api(`/sites/${sharePointConfig.siteId}/lists/${newsListId}/items`)
             .expand('fields($select=Title,Summary)')
+            .orderby('createdDateTime desc')
+            .top(3)
             .get();
         const newsArticles = response.value.map(item => ({
             title: item.fields.Title,
@@ -71,7 +75,25 @@ app.get('/api/news', async (req, res) => {
         }));
         res.json(newsArticles);
     } catch (error) {
+        console.error('Fejl under hentning af nyheder fra SharePoint:', error);
         res.status(500).json({ message: 'Kunne ikke hente nyheder fra SharePoint.' });
+    }
+});
+
+app.get('/api/calendar-events', async (req, res) => {
+    try {
+        const graphClient = await getGraphClient();
+        const now = new Date().toISOString();
+        const response = await graphClient.api(`/users/${calendarUser}/calendars/${calendarId}/events`)
+            .filter(`start/dateTime ge '${now}'`)
+            .orderby('start/dateTime asc')
+            .top(3)
+            .select('id,subject,start')
+            .get();
+        res.json(response.value);
+    } catch (error) {
+        console.error('Fejl under hentning af kalender-events:', error);
+        res.status(500).json({ message: 'Kunne ikke hente kalender-events.' });
     }
 });
 
