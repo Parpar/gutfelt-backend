@@ -2,7 +2,6 @@ require('dotenv').config();
 
 const express = require('express');
 const cors = require('cors');
-const multer = require('multer');
 const { createClient } = require('@supabase/supabase-js');
 const bcrypt = require('bcrypt');
 const { ConfidentialClientApplication } = require('@azure/msal-node');
@@ -21,35 +20,12 @@ const msalConfig = {
 };
 
 const sharePointConfig = {
-    siteId: process.env.SITE_ID,
-    driveId: process.env.DRIVE_ID,
-    folderIds: {
-        fakturering: process.env.FOLDER_ID_FAKTURERING,
-        kickoff: process.env.FOLDER_ID_KICKOFF,
-        kundehåndtering: process.env.FOLDER_ID_KUNDEHAANDTERING,
-        kvalitetsstyring: process.env.FOLDER_ID_KVALITETSSTYRING,
-        mandagsmøder: process.env.FOLDER_ID_MANDAGSMOEDER,
-        personalehåndbog: process.env.FOLDER_ID_PERSONALEHAANDBOG,
-        persondatapolitik: process.env.FOLDER_ID_PERSONDATAPOLITIK,
-        slettepolitik: process.env.FOLDER_ID_SLETTEPOLITIK,
-        whistleblower: process.env.FOLDER_ID_WHISTLEBLOWER,
-        fjernlager: process.env.FOLDER_ID_FJERNLAGER,
-        kompetenceskema: process.env.FOLDER_ID_KOMPETENCESKEMA,
-        kursusmaterialer: process.env.FOLDER_ID_KURSUSMATERIALER,
-        planlægning: process.env.FOLDER_ID_PLANLAEGNING,
-        bygning: process.env.FOLDER_ID_BYGNING,
-        rådgivere: process.env.FOLDER_ID_RAADGIVERE,
-        systemer: process.env.FOLDER_ID_SYSTEMER,
-        aftalebreve: process.env.FOLDER_ID_AFTALEBREVE,
-        engagement: process.env.FOLDER_ID_ENGAGEMENT,
-        habilitet: process.env.FOLDER_ID_HABILITET,
-        protokollat: process.env.FOLDER_ID_PROTOKOLLAT,
-        tjeklister: process.env.FOLDER_ID_TJEKLISTER,
-        oevrige: process.env.FOLDER_ID_OEVRIGE
-    }
+    siteId: process.env.SITE_ID
 };
 
-if (!supabaseUrl || !supabaseKey || !msalConfig.auth.clientId) {
+const newsListId = process.env.NEWS_LIST_ID;
+
+if (!supabaseUrl || !supabaseKey || !msalConfig.auth.clientId || !newsListId) {
     console.error("Fejl: Kritiske Environment Variables mangler.");
     process.exit(1);
 }
@@ -66,7 +42,6 @@ const app = express();
 const PORT = process.env.PORT || 8000;
 app.use(cors());
 app.use(express.json());
-const upload = multer({ storage: multer.memoryStorage() });
 
 app.get('/', (req, res) => res.send('Gutfelt Back-end er live.'));
 
@@ -84,43 +59,19 @@ app.post('/api/login', async (req, res) => {
     }
 });
 
-app.get('/api/documents/:category', async (req, res) => {
-    const category = req.params.category.toLowerCase();
-    const folderId = sharePointConfig.folderIds[category];
-    if (!folderId) return res.status(400).json({ message: `Ukendt kategori: ${category}` });
+app.get('/api/news', async (req, res) => {
     try {
         const graphClient = await getGraphClient();
-        const listPath = `/drives/${sharePointConfig.driveId}/items/${folderId}/children`;
-        const response = await graphClient.api(listPath)
-            .select('id,name,size,webUrl')
+        const response = await graphClient.api(`/sites/${sharePointConfig.siteId}/lists/${newsListId}/items`)
+            .expand('fields($select=Title,Summary)')
             .get();
-        const documents = response.value.map(item => ({
-            id: item.id,
-            name: item.name,
-            path: item.webUrl,
-            size: item.size
+        const newsArticles = response.value.map(item => ({
+            title: item.fields.Title,
+            summary: item.fields.Summary
         }));
-        res.json(documents);
+        res.json(newsArticles);
     } catch (error) {
-        res.status(500).json({ message: 'Kunne ikke hente dokumenter fra SharePoint.' });
-    }
-});
-
-app.post('/api/upload/:category', upload.single('document'), async (req, res) => {
-    if (!req.file) return res.status(400).json({ message: 'Ingen fil blev uploadet.' });
-    const category = req.params.category.toLowerCase();
-    const folderId = sharePointConfig.folderIds[category];
-    if (!folderId) return res.status(400).json({ message: `Ukendt upload-kategori: ${category}` });
-    try {
-        const graphClient = await getGraphClient();
-        const uploadPath = `/drives/${sharePointConfig.driveId}/items/${folderId}:/${req.file.originalname}:/content`;
-        const response = await graphClient.api(uploadPath).put(req.file.buffer);
-        res.status(201).json({
-            message: 'Fil uploadet succesfuldt til SharePoint!',
-            file: { name: response.name, path: response.webUrl, size: response.size }
-        });
-    } catch (error) {
-        res.status(500).json({ message: 'Der skete en serverfejl under upload.' });
+        res.status(500).json({ message: 'Kunne ikke hente nyheder fra SharePoint.' });
     }
 });
 
