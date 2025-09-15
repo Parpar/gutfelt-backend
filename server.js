@@ -96,8 +96,7 @@ app.get('/api/search', async (req, res) => {
                 .filter(`contains(fields/Title, '${query}') or contains(fields/Summary, '${query}')`)
                 .expand('fields($select=Title,Summary)')
                 .get(),
-            graphClient.api(`/drives/${sharePointConfig.driveId}/root/search(q='${query}')`)
-                .select('id,name,webUrl')
+            graphClient.api(`/sites/${sharePointConfig.siteId}/search(q='${query}')`)
                 .get()
         ]);
         
