@@ -19,6 +19,7 @@ const calendarUser = process.env.CALENDAR_USER_EMAIL;
 
 const supabase = createClient(supabaseUrl, supabaseKey);
 const cca = new ConfidentialClientApplication(msalConfig);
+
 async function getGraphClient() {
     const authResponse = await cca.acquireTokenByClientCredential({ scopes: ['https://graph.microsoft.com/.default'] });
     return Client.init({ authProvider: (done) => done(null, authResponse.accessToken) });
@@ -40,7 +41,9 @@ app.post('/api/login', async (req, res) => {
         const passwordIsValid = bcrypt.compareSync(password, user.password);
         if (!passwordIsValid) return res.status(401).json({ message: 'Forkert email eller password.' });
         res.json({ id: user.id, name: user.name, email: user.email, role: user.role });
-    } catch (err) { res.status(500).json({ message: 'Der skete en serverfejl.' }); }
+    } catch (err) {
+        res.status(500).json({ message: 'Der skete en serverfejl.' });
+    }
 });
 
 app.get('/api/news', async (req, res) => {
@@ -48,7 +51,9 @@ app.get('/api/news', async (req, res) => {
         const graphClient = await getGraphClient();
         const response = await graphClient.api(`/sites/${sharePointConfig.siteId}/lists/${newsListId}/items`).expand('fields($select=Title,Summary)').orderby('createdDateTime desc').top(3).get();
         res.json(response.value.map(item => ({ title: item.fields.Title, summary: item.fields.Summary })));
-    } catch (error) { res.status(500).json({ message: 'Kunne ikke hente nyheder.' }); }
+    } catch (error) {
+        res.status(500).json({ message: 'Kunne ikke hente nyheder.' });
+    }
 });
 
 app.get('/api/calendar-events', async (req, res) => {
@@ -57,7 +62,9 @@ app.get('/api/calendar-events', async (req, res) => {
         const now = new Date().toISOString();
         const response = await graphClient.api(`/users/${calendarUser}/calendars/${calendarId}/events`).filter(`start/dateTime ge '${now}'`).orderby('start/dateTime asc').top(3).select('id,subject,start').get();
         res.json(response.value);
-    } catch (error) { res.status(500).json({ message: 'Kunne ikke hente kalender-events.' }); }
+    } catch (error) {
+        res.status(500).json({ message: 'Kunne ikke hente kalender-events.' });
+    }
 });
 
 app.get('/api/documents/:category', async (req, res) => {
@@ -70,7 +77,9 @@ app.get('/api/documents/:category', async (req, res) => {
         const response = await graphClient.api(listPath).select('id,name,size,webUrl').get();
         const documents = response.value.map(item => ({ id: item.id, name: item.name, path: item.webUrl, size: item.size }));
         res.json(documents);
-    } catch (error) { res.status(500).json({ message: 'Kunne ikke hente dokumenter fra SharePoint.' }); }
+    } catch (error) {
+        res.status(500).json({ message: 'Kunne ikke hente dokumenter fra SharePoint.' });
+    }
 });
 
 app.post('/api/upload/:category', upload.single('document'), async (req, res) => {
@@ -83,7 +92,9 @@ app.post('/api/upload/:category', upload.single('document'), async (req, res) =>
         const uploadPath = `/drives/${sharePointConfig.driveId}/items/${folderId}:/${req.file.originalname}:/content`;
         const response = await graphClient.api(uploadPath).put(req.file.buffer);
         res.status(201).json({ message: 'Fil uploadet succesfuldt til SharePoint!', file: { name: response.name, path: response.webUrl, size: response.size } });
-    } catch (error) { res.status(500).json({ message: 'Der skete en serverfejl under upload.' }); }
+    } catch (error) {
+        res.status(500).json({ message: 'Der skete en serverfejl under upload.' });
+    }
 });
 
 app.get('/api/search', async (req, res) => {
@@ -91,13 +102,24 @@ app.get('/api/search', async (req, res) => {
     if (!query) { return res.status(400).json({ message: 'Søgeord mangler.' }); }
     try {
         const graphClient = await getGraphClient();
-        const response = await graphClient.api(`/sites/${sharePointConfig.siteId}/lists/${newsListId}/items`)
-            .filter(`contains(fields/Title, '${query}') or contains(fields/Summary, '${query}')`)
-            .expand('fields($select=Title,Summary)')
-            .get();
-        const results = response.value.map(item => ({ type: 'Nyhed', title: item.fields.Title, description: item.fields.Summary, link: '/' }));
-        res.json(results);
-    } catch (error) { res.status(500).json({ message: 'Der skete en fejl under søgningen.' }); }
+        const [newsResponse, documentsResponse] = await Promise.all([
+            graphClient.api(`/sites/${sharePointConfig.siteId}/lists/${newsListId}/items`)
+                .filter(`contains(fields/Title, '${query}') or contains(fields/Summary, '${query}')`)
+                .expand('fields($select=Title,Summary)')
+                .get(),
+            graphClient.api(`/drives/${sharePointConfig.driveId}/root/search(q='${query}')`)
+                .select('id,name,webUrl')
+                .get()
+        ]);
+        
+        const newsResults = newsResponse.value.map(item => ({ type: 'Nyhed', title: item.fields.Title, description: item.fields.Summary, link: '/' }));
+        const documentResults = documentsResponse.value.map(item => ({ type: 'Dokument', title: item.name, description: 'Dokument fundet i SharePoint.', link: item.webUrl }));
+        const combinedResults = [...newsResults, ...documentResults];
+        res.json(combinedResults);
+    } catch (error) {
+        console.error("Fejl under kombineret søgning:", error);
+        res.status(500).json({ message: 'Der skete en fejl under søgningen.' });
+    }
 });
 
 const PORT = process.env.PORT || 8000;
