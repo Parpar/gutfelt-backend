@@ -101,4 +101,4 @@ app.get('/api/search', async (req, res) => {
 });
 
 const PORT = process.env.PORT || 8000;
-app.listen(PORT, () => console.log(`Back-end serveren kører nu på port ${PORT}`));```
+app.listen(PORT, () => console.log(`Back-end serveren kører nu på port ${PORT}`));
