@@ -96,15 +96,19 @@ app.get('/api/search', async (req, res) => {
             requests: [
                 {
                     entityTypes: ["driveItem"],
-                    query: { queryString: `${query} path:"https://gutfelt.sharepoint.com/sites/IntranetDokumenter/Delte%20dokumenter"` },
+                    query: {
+                        queryString: `${query} AND siteid:${sharePointConfig.siteId}`
+                    },
                     from: 0,
-                    size: 10
+                    size: 25
                 },
                 {
                     entityTypes: ["listItem"],
-                    query: { queryString: query },
+                    query: {
+                        queryString: `${query} AND siteid:${sharePointConfig.siteId}`
+                    },
                     from: 0,
-                    size: 5
+                    size: 10
                 }
             ]
         };
