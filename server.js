@@ -16,7 +16,6 @@ const sharePointConfig = { siteId: process.env.SITE_ID, driveId: process.env.DRI
 const newsListId = process.env.NEWS_LIST_ID;
 const calendarId = process.env.CALENDAR_ID;
 const calendarUser = process.env.CALENDAR_USER_EMAIL;
-const HASH_SECRET = process.env.HASH_SECRET;
 
 const supabase = createClient(supabaseUrl, supabaseKey);
 const cca = new ConfidentialClientApplication(msalConfig);
@@ -90,34 +89,13 @@ app.post('/api/upload/:category', upload.single('document'), async (req, res) =>
 
 app.get('/api/search', async (req, res) => {
     const query = req.query.q;
-    if (!query) return res.status(400).json({ message: 'Søgeord mangler.' });
+    if (!query) { return res.status(400).json({ message: 'Søgeord mangler.' }); }
     try {
-        const { data, error } = await supabase
-            .from('documents')
-            .select('name, link')
-            .ilike('name', `%${query}%`);
-        
+        const { data, error } = await supabase.from('documents').select('name, link').ilike('name', `%${query}%`);
         if (error) throw error;
-
-        const results = data.map(item => ({
-            type: 'Dokument',
-            title: item.name,
-            description: 'Dokument fundet i SharePoint.',
-            link: item.link
-        }));
+        const results = data.map(item => ({ type: 'Dokument', title: item.name, description: 'Dokument fundet i SharePoint.', link: item.link }));
         res.json(results);
-    } catch (error) {
-        res.status(500).json({ message: 'Der skete en fejl under søgningen.' });
-    }
-});
-
-app.get('/api/hash/:secret/:password', (req, res) => {
-    const { secret, password } = req.params;
-    if (!HASH_SECRET) { return res.status(500).send('HASH_SECRET er ikke konfigureret på serveren.'); }
-    if (secret !== HASH_SECRET) { return res.status(403).send('Adgang nægtet.'); }
-    const salt = bcrypt.genSaltSync(10);
-    const hash = bcrypt.hashSync(password, salt);
-    res.send(`<p>Krypteret password for '${password}':</p><p style="font-family:monospace; background:#eee; padding:10px; border:1px solid #ddd;">${hash}</p>`);
+    } catch (error) { res.status(500).json({ message: 'Der skete en fejl under søgningen.' }); }
 });
 
 const PORT = process.env.PORT || 8000;
@@ -135,11 +113,7 @@ async function syncSharePointToSupabase() {
             if (folderId) {
                 const listPath = `/drives/${sharePointConfig.driveId}/items/${folderId}/children`;
                 const response = await graphClient.api(listPath).select('name,webUrl').get();
-                const documents = response.value.map(item => ({
-                    name: item.name,
-                    link: item.webUrl,
-                    category: category
-                }));
+                const documents = response.value.map(item => ({ name: item.name, link: item.webUrl, category: category }));
                 allFiles.push(...documents);
             }
         }
