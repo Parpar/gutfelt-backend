@@ -19,6 +19,7 @@ const calendarUser = process.env.CALENDAR_USER_EMAIL;
 
 const supabase = createClient(supabaseUrl, supabaseKey);
 const cca = new ConfidentialClientApplication(msalConfig);
+
 async function getGraphClient() {
     const authResponse = await cca.acquireTokenByClientCredential({ scopes: ['https://graph.microsoft.com/.default'] });
     return Client.init({ authProvider: (done) => done(null, authResponse.accessToken) });
@@ -31,11 +32,60 @@ const upload = multer({ storage: multer.memoryStorage() });
 
 app.get('/', (req, res) => res.send('Gutfelt Back-end er live.'));
 
-app.post('/api/login', async (req, res) => { /* Koden er uændret */ });
-app.get('/api/news', async (req, res) => { /* Koden er uændret */ });
-app.get('/api/calendar-events', async (req, res) => { /* Koden er uændret */ });
-app.get('/api/documents/:category', async (req, res) => { /* Koden er uændret */ });
-app.post('/api/upload/:category', async (req, res) => { /* Koden er uændret, men vil nu også opdatere Supabase */ });
+app.post('/api/login', async (req, res) => {
+    const { email, password } = req.body;
+    if (!email || !password) return res.status(400).json({ message: 'Email og password er påkrævet.' });
+    try {
+        const { data: user, error } = await supabase.from('users').select('*').eq('email', email).single();
+        if (error || !user) return res.status(401).json({ message: 'Forkert email eller password.' });
+        const passwordIsValid = bcrypt.compareSync(password, user.password);
+        if (!passwordIsValid) return res.status(401).json({ message: 'Forkert email eller password.' });
+        res.json({ id: user.id, name: user.name, email: user.email, role: user.role });
+    } catch (err) { res.status(500).json({ message: 'Der skete en serverfejl.' }); }
+});
+
+app.get('/api/news', async (req, res) => {
+    try {
+        const graphClient = await getGraphClient();
+        const response = await graphClient.api(`/sites/${sharePointConfig.siteId}/lists/${newsListId}/items`).expand('fields($select=Title,Summary)').orderby('createdDateTime desc').top(3).get();
+        res.json(response.value.map(item => ({ title: item.fields.Title, summary: item.fields.Summary })));
+    } catch (error) { res.status(500).json({ message: 'Kunne ikke hente nyheder.' }); }
+});
+
+app.get('/api/calendar-events', async (req, res) => {
+    try {
+        const graphClient = await getGraphClient();
+        const now = new Date().toISOString();
+        const response = await graphClient.api(`/users/${calendarUser}/calendars/${calendarId}/events`).filter(`start/dateTime ge '${now}'`).orderby('start/dateTime asc').top(3).select('id,subject,start').get();
+        res.json(response.value);
+    } catch (error) { res.status(500).json({ message: 'Kunne ikke hente kalender-events.' }); }
+});
+
+app.get('/api/documents/:category', async (req, res) => {
+    const category = req.params.category.toLowerCase();
+    const folderId = sharePointConfig.folderIds[category];
+    if (!folderId) return res.status(400).json({ message: `Ukendt kategori: ${category}` });
+    try {
+        const graphClient = await getGraphClient();
+        const listPath = `/drives/${sharePointConfig.driveId}/items/${folderId}/children`;
+        const response = await graphClient.api(listPath).select('id,name,size,webUrl').get();
+        const documents = response.value.map(item => ({ id: item.id, name: item.name, path: item.webUrl, size: item.size }));
+        res.json(documents);
+    } catch (error) { res.status(500).json({ message: 'Kunne ikke hente dokumenter fra SharePoint.' }); }
+});
+
+app.post('/api/upload/:category', upload.single('document'), async (req, res) => {
+    if (!req.file) return res.status(400).json({ message: 'Ingen fil blev uploadet.' });
+    const category = req.params.category.toLowerCase();
+    const folderId = sharePointConfig.folderIds[category];
+    if (!folderId) return res.status(400).json({ message: `Ukendt upload-kategori: ${category}` });
+    try {
+        const graphClient = await getGraphClient();
+        const uploadPath = `/drives/${sharePointConfig.driveId}/items/${folderId}:/${req.file.originalname}:/content`;
+        const response = await graphClient.api(uploadPath).put(req.file.buffer);
+        res.status(201).json({ message: 'Fil uploadet succesfuldt til SharePoint!', file: { name: response.name, path: response.webUrl, size: response.size } });
+    } catch (error) { res.status(500).json({ message: 'Der skete en serverfejl under upload.' }); }
+});
 
 app.get('/api/search', async (req, res) => {
     const query = req.query.q;
@@ -44,7 +94,7 @@ app.get('/api/search', async (req, res) => {
         const { data, error } = await supabase
             .from('documents')
             .select('name, link')
-            .ilike('name', `%${query}%`); // Søger efter filnavne, der indeholder søgeordet
+            .ilike('name', `%${query}%`);
         
         if (error) throw error;
 
@@ -63,99 +113,31 @@ app.get('/api/search', async (req, res) => {
 const PORT = process.env.PORT || 8000;
 app.listen(PORT, () => console.log(`Back-end serveren kører nu på port ${PORT}`));
 
-// Funktion til at synkronisere filer fra SharePoint til Supabase
 async function syncSharePointToSupabase() {
     console.log("Starter synkronisering af SharePoint-filer...");
     try {
         const graphClient = await getGraphClient();
         const allFiles = [];
-
         for (const [category, folderId] of Object.entries(sharePointConfig.folderIds)) {
-            const listPath = `/drives/${sharePointConfig.driveId}/items/${folderId}/children`;
-            const response = await graphClient.api(listPath).select('id,name,webUrl').get();
-            const documents = response.value.map(item => ({
-                name: item.name,
-                link: item.webUrl,
-                category: category
-            }));
-            allFiles.push(...documents);
+            if (folderId) {
+                const listPath = `/drives/${sharePointConfig.driveId}/items/${folderId}/children`;
+                const response = await graphClient.api(listPath).select('name,webUrl').get();
+                const documents = response.value.map(item => ({
+                    name: item.name,
+                    link: item.webUrl,
+                    category: category
+                }));
+                allFiles.push(...documents);
+            }
         }
-
-        // Slet den gamle liste i Supabase
         const { error: deleteError } = await supabase.from('documents').delete().neq('id', 0);
         if (deleteError) throw deleteError;
-
-        // Indsæt den nye, friske liste
         const { error: insertError } = await supabase.from('documents').insert(allFiles);
         if (insertError) throw insertError;
-        
         console.log(`Synkronisering fuldført. ${allFiles.length} filer blev indekseret.`);
     } catch (error) {
         console.error("Fejl under synkronisering af SharePoint:", error);
     }
 }
-
-// Kør synkroniseringen én gang, når serveren starter
 syncSharePointToSupabase();
-// Sæt den til at køre igen hver time
 setInterval(syncSharePointToSupabase, 3600000); 
-```*(Husk at indsætte den fulde kode for de forkortede funktioner).*
-
-**Fase 3: Opdater din Front-end (`searchresults.js`)**
-**Handling:** Erstat **ALT** indholdet i din `gutfelt-intranet/src/pages/searchresults.js`-fil.
-
-```jsx
-import React, { useState, useEffect } from 'react';
-import { useSearchParams, Link } from 'react-router-dom';
-
-function SearchResultsPage() {
-  const [searchParams] = useSearchParams();
-  const query = searchParams.get('q');
-  const [results, setResults] = useState([]);
-  const [isLoading, setIsLoading] = useState(true);
-
-  useEffect(() => {
-    if (query) {
-      const fetchResults = async () => {
-        setIsLoading(true);
-        try {
-          const response = await fetch(`https://gutfelt-backend.onrender.com/api/search?q=${query}`);
-          const data = await response.json();
-          setResults(data);
-        } catch (error) {
-          console.error("Søgning fejlede:", error);
-        } finally {
-          setIsLoading(false);
-        }
-      };
-      fetchResults();
-    }
-  }, [query]);
-  
-  const getIcon = (type) => (type === 'Dokument' ? 'fa-file-alt' : 'fa-newspaper');
-
-  return (
-    <div className="widget" style={{ margin: '2rem' }}>
-      <h2>Søgeresultater for "{query}"</h2>
-      {isLoading ? ( <p>Søger i dokumentarkivet...</p> ) : 
-      ( results.length > 0 ? (
-          <table className="document-table">
-            <thead><tr><th>Type</th><th>Titel</th><th>Beskrivelse</th></tr></thead>
-            <tbody>
-              {results.map((result, index) => (
-                <tr key={index}>
-                  <td className="file-name-cell"><div className="file-icon"><i className={`fas ${getIcon(result.type)}`}></i></div><span>{result.type}</span></td>
-                  <td><a href={result.link} target="_blank" rel="noopener noreferrer">{result.title}</a></td>
-                  <td>{result.description}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        ) : ( <p>Ingen dokumenter matchede din søgning.</p> )
-      )}
-      <Link to="/" className="back-link" style={{marginTop: '2rem'}}>← Tilbage til forsiden</Link>
-    </div>
-  );
-}
-
-export default SearchResultsPage;
