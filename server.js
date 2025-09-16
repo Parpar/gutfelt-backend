@@ -91,49 +91,22 @@ app.get('/api/search', async (req, res) => {
     if (!query) { return res.status(400).json({ message: 'Søgeord mangler.' }); }
     try {
         const graphClient = await getGraphClient();
-
-        const searchRequest = {
-            requests: [
-                {
-                    entityTypes: ["driveItem"],
-                    query: {
-                        queryString: `${query} AND siteid:${sharePointConfig.siteId}`
-                    },
-                    from: 0,
-                    size: 25
-                },
-                {
-                    entityTypes: ["listItem"],
-                    query: {
-                        queryString: `${query} AND siteid:${sharePointConfig.siteId}`
-                    },
-                    from: 0,
-                    size: 10
-                }
-            ]
-        };
-
-        const searchResponse = await graphClient.api('/search/query').post(searchRequest);
+        const [newsResponse, documentsResponse] = await Promise.all([
+            graphClient.api(`/sites/${sharePointConfig.siteId}/lists/${newsListId}/items`)
+                .filter(`contains(fields/Title, '${query}') or contains(fields/Summary, '${query}')`)
+                .expand('fields($select=Title,Summary)')
+                .get(),
+            graphClient.api(`/drives/${sharePointConfig.driveId}/root/search(q='${query}')`)
+                .select('id,name,webUrl')
+                .get()
+        ]);
         
-        const documentResults = searchResponse.value[0].hitsContainers[0].hits.map(hit => ({
-            type: 'Dokument',
-            title: hit.resource.name,
-            description: 'Dokument fundet i SharePoint.',
-            link: hit.resource.webUrl
-        }));
-
-        const newsResults = searchResponse.value[1].hitsContainers[0].hits.map(hit => ({
-            type: 'Nyhed',
-            title: hit.resource.fields.title,
-            description: hit.resource.fields.summary,
-            link: '/'
-        }));
-
-        const combinedResults = [...documentResults, ...newsResults];
+        const newsResults = newsResponse.value.map(item => ({ type: 'Nyhed', title: item.fields.Title, description: item.fields.Summary, link: '/' }));
+        const documentResults = documentsResponse.value.map(item => ({ type: 'Dokument', title: item.name, description: 'Dokument fundet i SharePoint.', link: item.webUrl }));
+        const combinedResults = [...newsResults, ...documentResults];
         res.json(combinedResults);
-
     } catch (error) {
-        console.error("Fejl under avanceret søgning:", error);
+        console.error("Fejl under kombineret søgning:", error);
         res.status(500).json({ message: 'Der skete en fejl under søgningen.' });
     }
 });
