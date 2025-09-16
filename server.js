@@ -96,32 +96,19 @@ app.get('/api/search', async (req, res) => {
     if (!query) { return res.status(400).json({ message: 'Søgeord mangler.' }); }
     try {
         const graphClient = await getGraphClient();
-        const [newsResponse, documentsResponse] = await Promise.all([
-            graphClient.api(`/sites/${sharePointConfig.siteId}/lists/${newsListId}/items`)
-                .filter(`contains(fields/Title, '${query}') or contains(fields/Summary, '${query}')`)
-                .expand('fields($select=Title,Summary)')
-                .get(),
-            graphClient.api(`/drives/${sharePointConfig.driveId}/root/search(q='${query}')`)
-                .select('id,name,webUrl')
-                .get()
-        ]);
-        
-        const newsResults = newsResponse.value.map(item => ({ type: 'Nyhed', title: item.fields.Title, description: item.fields.Summary, link: '/' }));
-        const documentResults = documentsResponse.value.map(item => ({ type: 'Dokument', title: item.name, description: 'Dokument fundet i SharePoint.', link: item.webUrl }));
-        const combinedResults = [...newsResults, ...documentResults];
+        const searchRequest = { requests: [ { entityTypes: ["driveItem"], query: { queryString: `${query} AND siteid:${sharePointConfig.siteId}` } }, { entityTypes: ["listItem"], query: { queryString: `${query} AND siteid:${sharePointConfig.siteId}` } } ] };
+        const searchResponse = await graphClient.api('/search/query').post(searchRequest);
+        const documentResults = searchResponse.value[0].hitsContainers[0].hits.map(hit => ({ type: 'Dokument', title: hit.resource.name, description: 'Dokument fundet i SharePoint.', link: hit.resource.webUrl }));
+        const newsResults = searchResponse.value[1].hitsContainers[0].hits.map(hit => ({ type: 'Nyhed', title: hit.resource.fields.title, description: hit.resource.fields.summary, link: '/' }));
+        const combinedResults = [...documentResults, ...newsResults];
         res.json(combinedResults);
-    } catch (error) {
-        console.error("Fejl under kombineret søgning:", error);
-        res.status(500).json({ message: 'Der skete en fejl under søgningen.' });
-    }
+    } catch (error) { res.status(500).json({ message: 'Der skete en fejl under søgningen.' }); }
 });
 
 app.get('/api/hash/:secret/:password', (req, res) => {
     const { secret, password } = req.params;
     if (!HASH_SECRET) { return res.status(500).send('HASH_SECRET er ikke konfigureret på serveren.'); }
-    if (secret !== HASH_SECRET) {
-        return res.status(403).send('Adgang nægtet.');
-    }
+    if (secret !== HASH_SECRET) { return res.status(403).send('Adgang nægtet.'); }
     const salt = bcrypt.genSaltSync(10);
     const hash = bcrypt.hashSync(password, salt);
     res.send(`<p>Krypteret password for '${password}':</p><p style="font-family:monospace; background:#eee; padding:10px; border:1px solid #ddd;">${hash}</p>`);
