@@ -20,6 +20,7 @@ const HASH_SECRET = process.env.HASH_SECRET;
 
 const supabase = createClient(supabaseUrl, supabaseKey);
 const cca = new ConfidentialClientApplication(msalConfig);
+
 async function getGraphClient() {
     const authResponse = await cca.acquireTokenByClientCredential({ scopes: ['https://graph.microsoft.com/.default'] });
     return Client.init({ authProvider: (done) => done(null, authResponse.accessToken) });
@@ -47,11 +48,7 @@ app.post('/api/login', async (req, res) => {
 app.get('/api/news', async (req, res) => {
     try {
         const graphClient = await getGraphClient();
-        const response = await graphClient.api(`/sites/${sharePointConfig.siteId}/lists/${newsListId}/items`)
-            .expand('fields($select=Title,Summary)')
-            .orderby('createdDateTime desc')
-            .top(3)
-            .get();
+        const response = await graphClient.api(`/sites/${sharePointConfig.siteId}/lists/${newsListId}/items`).expand('fields($select=Title,Summary)').orderby('createdDateTime desc').top(3).get();
         res.json(response.value.map(item => ({ title: item.fields.Title, summary: item.fields.Summary })));
     } catch (error) { res.status(500).json({ message: 'Kunne ikke hente nyheder.' }); }
 });
@@ -96,13 +93,30 @@ app.get('/api/search', async (req, res) => {
     if (!query) { return res.status(400).json({ message: 'Søgeord mangler.' }); }
     try {
         const graphClient = await getGraphClient();
-        const searchRequest = { requests: [ { entityTypes: ["driveItem"], query: { queryString: `${query} AND siteid:${sharePointConfig.siteId}` } }, { entityTypes: ["listItem"], query: { queryString: `${query} AND siteid:${sharePointConfig.siteId}` } } ] };
-        const searchResponse = await graphClient.api('/search/query').post(searchRequest);
-        const documentResults = searchResponse.value[0].hitsContainers[0].hits.map(hit => ({ type: 'Dokument', title: hit.resource.name, description: 'Dokument fundet i SharePoint.', link: hit.resource.webUrl }));
-        const newsResults = searchResponse.value[1].hitsContainers[0].hits.map(hit => ({ type: 'Nyhed', title: hit.resource.fields.title, description: hit.resource.fields.summary, link: '/' }));
-        const combinedResults = [...documentResults, ...newsResults];
-        res.json(combinedResults);
-    } catch (error) { res.status(500).json({ message: 'Der skete en fejl under søgningen.' }); }
+        let allFiles = [];
+        for (const folderId of Object.values(sharePointConfig.folderIds)) {
+            if (folderId) {
+                const listPath = `/drives/${sharePointConfig.driveId}/items/${folderId}/children`;
+                const response = await graphClient.api(listPath).select('name,webUrl').get();
+                allFiles.push(...response.value);
+            }
+        }
+        
+        const lowerCaseQuery = query.toLowerCase();
+        const filteredFiles = allFiles.filter(file => file.name.toLowerCase().includes(lowerCaseQuery));
+
+        const documentResults = filteredFiles.map(item => ({
+            type: 'Dokument',
+            title: item.name,
+            description: 'Dokument fundet i SharePoint.',
+            link: item.webUrl
+        }));
+
+        res.json(documentResults);
+    } catch (error) {
+        console.error("Fejl under fil-søgning:", error);
+        res.status(500).json({ message: 'Der skete en fejl under søgningen.' });
+    }
 });
 
 app.get('/api/hash/:secret/:password', (req, res) => {
