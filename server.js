@@ -49,7 +49,7 @@ app.get('/api/news', async (req, res) => {
         const graphClient = await getGraphClient();
         const response = await graphClient.api(`/sites/${sharePointConfig.siteId}/lists/${newsListId}/items`)
             .expand('fields($select=Title,Summary)')
-            .orderby('createdDateTime desc')
+            .orderby('lastModifiedDateTime desc')
             .top(3)
             .get();
         res.json(response.value.map(item => ({ title: item.fields.Title, summary: item.fields.Summary })));
