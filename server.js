@@ -12,7 +12,7 @@ require('isomorphic-fetch');
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_KEY;
 const msalConfig = { auth: { clientId: process.env.CLIENT_ID, authority: `https://login.microsoftonline.com/${process.env.TENANT_ID}`, clientSecret: process.env.CLIENT_SECRET } };
-const sharePointConfig = { siteId: process.env.SITE_ID, driveId: process.env.DRIVE_ID, folderIds: { fakturering: process.env.FOLDER_ID_FAKTURERING, kickoff: process.env.FOLDER_ID_KICKOFF, kundehåndtering: process.env.FOLDER_ID_KUNDEHAANDTERING, kvalitetsstyring: process.env.FOLDER_ID_KVALITETSSTYRING, mandagsmøder: process.env.FOLDER_ID_MANDAGSMOEDER, personalehåndbog: process.env.FOLDER_ID_PERSONALEHAANDBOG, persondatapolitik: process.env.FOLDER_ID_PERSONDATAPOLITIK, slettepolitik: process.env.FOLDER_ID_SLETTEPOLITIK, whistleblower: process.env.FOLDER_ID_WHISTLEBLOWER, fjernlager: process.env.FOLDER_ID_FJERNLAGER, kompetenceskema: process.env.FOLDER_ID_KOMPETENCESKEMA, kursusmaterialer: process.env.FOLDER_ID_KURSUSMATERIALER, planlægning: process.env.FOLDER_ID_PLANLAEGNING, bygning: process.env.FOLDER_ID_BYGNING, rådgivere: process.env.FOLDER_ID_RAADGIVERE, systemer: process.env.FOLDER_ID_SYSTEMER, aftalebreve: process.env.FOLDER_ID_AFTALEBREVE, engagement: process.env.FOLDER_ID_ENGAGEMENT, habilitet: process.env.FOLDER_ID_HABILET, protokollat: process.env.FOLDER_ID_PROTOKOLLAT, tjeklister: process.env.FOLDER_ID_TJEKLISTER, oevrige: process.env.FOLDER_ID_OEVRIGE } };
+const sharePointConfig = { siteId: process.env.SITE_ID, driveId: process.env.DRIVE_ID, folderIds: { fakturering: process.env.FOLDER_ID_FAKTURERING, kickoff: process.env.FOLDER_ID_KICKOFF, kundehåndtering: process.env.FOLDER_ID_KUNDEHAANDTERING, kvalitetsstyring: process.env.FOLDER_ID_KVALITETSSTYRING, mandagsmøder: process.env.FOLDER_ID_MANDAGSMOEDER, personalehåndbog: process.env.FOLDER_ID_PERSONALEHAANDBOG, persondatapolitik: process.env.FOLDER_ID_PERSONDATAPOLITIK, slettepolitik: process.env.FOLDER_ID_SLETTEPOLITIK, whistleblower: process.env.FOLDER_ID_WHISTLEBLOWER, fjernlager: process.env.FOLDER_ID_FJERNLAGER, kompetenceskema: process.env.FOLDER_ID_KOMPETENCESKEMA, kursusmaterialer: process.env.FOLDER_ID_KURSUSMATERIALER, planlægning: process.env.FOLDER_ID_PLANLAEGNING, bygning: process.env.FOLDER_ID_BYGNING, rådgivere: process.env.FOLDER_ID_RAADGIVERE, systemer: process.env.FOLDER_ID_SYSTEMER, aftalebreve: process.env.FOLDER_ID_AFTALEBREVE, engagement: process.env.FOLDER_ID_ENGAGEMENT, habilitet: process.env.FOLDER_ID_HABILITET, protokollat: process.env.FOLDER_ID_PROTOKOLLAT, tjeklister: process.env.FOLDER_ID_TJEKLISTER, oevrige: process.env.FOLDER_ID_OEVRIGE } };
 const newsListId = process.env.NEWS_LIST_ID;
 const calendarId = process.env.CALENDAR_ID;
 const calendarUser = process.env.CALENDAR_USER_EMAIL;
@@ -20,6 +20,7 @@ const HASH_SECRET = process.env.HASH_SECRET;
 
 const supabase = createClient(supabaseUrl, supabaseKey);
 const cca = new ConfidentialClientApplication(msalConfig);
+
 async function getGraphClient() {
     const authResponse = await cca.acquireTokenByClientCredential({ scopes: ['https://graph.microsoft.com/.default'] });
     return Client.init({ authProvider: (done) => done(null, authResponse.accessToken) });
@@ -89,28 +90,66 @@ app.post('/api/upload/:category', upload.single('document'), async (req, res) =>
 
 app.get('/api/search', async (req, res) => {
     const query = req.query.q;
-    if (!query) { return res.status(400).json({ message: 'Søgeord mangler.' }); }
+    if (!query) return res.status(400).json({ message: 'Søgeord mangler.' });
     try {
-        const graphClient = await getGraphClient();
-        const searchRequest = { requests: [ { entityTypes: ["driveItem"], query: { queryString: `${query} AND siteid:${sharePointConfig.siteId}` } }, { entityTypes: ["listItem"], query: { queryString: `${query} AND siteid:${sharePointConfig.siteId}` } } ] };
-        const searchResponse = await graphClient.api('/search/query').post(searchRequest);
-        const documentResults = searchResponse.value[0].hitsContainers[0].hits.map(hit => ({ type: 'Dokument', title: hit.resource.name, description: 'Dokument fundet i SharePoint.', link: hit.resource.webUrl }));
-        const newsResults = searchResponse.value[1].hitsContainers[0].hits.map(hit => ({ type: 'Nyhed', title: hit.resource.fields.title, description: hit.resource.fields.summary, link: '/' }));
-        const combinedResults = [...documentResults, ...newsResults];
-        res.json(combinedResults);
-    } catch (error) { res.status(500).json({ message: 'Der skete en fejl under søgningen.' }); }
+        const { data, error } = await supabase
+            .from('documents')
+            .select('name, link')
+            .ilike('name', `%${query}%`);
+        
+        if (error) throw error;
+
+        const results = data.map(item => ({
+            type: 'Dokument',
+            title: item.name,
+            description: 'Dokument fundet i SharePoint.',
+            link: item.link
+        }));
+        res.json(results);
+    } catch (error) {
+        res.status(500).json({ message: 'Der skete en fejl under søgningen.' });
+    }
 });
 
 app.get('/api/hash/:secret/:password', (req, res) => {
     const { secret, password } = req.params;
     if (!HASH_SECRET) { return res.status(500).send('HASH_SECRET er ikke konfigureret på serveren.'); }
-    if (secret !== HASH_SECRET) {
-        return res.status(403).send('Adgang nægtet.');
-    }
+    if (secret !== HASH_SECRET) { return res.status(403).send('Adgang nægtet.'); }
     const salt = bcrypt.genSaltSync(10);
     const hash = bcrypt.hashSync(password, salt);
     res.send(`<p>Krypteret password for '${password}':</p><p style="font-family:monospace; background:#eee; padding:10px; border:1px solid #ddd;">${hash}</p>`);
 });
 
 const PORT = process.env.PORT || 8000;
-app.listen(PORT, () => console.log(`Back-end serveren kører nu på port ${PORT}`));
+app.listen(PORT, () => {
+    console.log(`Back-end serveren kører nu på port ${PORT}`);
+    syncSharePointToSupabase();
+});
+
+async function syncSharePointToSupabase() {
+    console.log("Starter synkronisering af SharePoint-filer...");
+    try {
+        const graphClient = await getGraphClient();
+        const allFiles = [];
+        for (const [category, folderId] of Object.entries(sharePointConfig.folderIds)) {
+            if (folderId) {
+                const listPath = `/drives/${sharePointConfig.driveId}/items/${folderId}/children`;
+                const response = await graphClient.api(listPath).select('name,webUrl').get();
+                const documents = response.value.map(item => ({
+                    name: item.name,
+                    link: item.webUrl,
+                    category: category
+                }));
+                allFiles.push(...documents);
+            }
+        }
+        const { error: deleteError } = await supabase.from('documents').delete().neq('id', 0);
+        if (deleteError) throw deleteError;
+        const { error: insertError } = await supabase.from('documents').insert(allFiles);
+        if (insertError) throw insertError;
+        console.log(`Synkronisering fuldført. ${allFiles.length} filer blev indekseret.`);
+    } catch (error) {
+        console.error("Fejl under synkronisering af SharePoint:", error);
+    }
+}
+setInterval(syncSharePointToSupabase, 3600000);
