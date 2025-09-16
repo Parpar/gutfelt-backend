@@ -11,17 +11,12 @@ require('isomorphic-fetch');
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_KEY;
-const msalConfig = { auth: { clientId: process.env.CLIENT_ID, authority: `https.login.microsoftonline.com/${process.env.TENANT_ID}`, clientSecret: process.env.CLIENT_SECRET } };
+const msalConfig = { auth: { clientId: process.env.CLIENT_ID, authority: `https://login.microsoftonline.com/${process.env.TENANT_ID}`, clientSecret: process.env.CLIENT_SECRET } };
 const sharePointConfig = { siteId: process.env.SITE_ID, driveId: process.env.DRIVE_ID, folderIds: { fakturering: process.env.FOLDER_ID_FAKTURERING, kickoff: process.env.FOLDER_ID_KICKOFF, kundehåndtering: process.env.FOLDER_ID_KUNDEHAANDTERING, kvalitetsstyring: process.env.FOLDER_ID_KVALITETSSTYRING, mandagsmøder: process.env.FOLDER_ID_MANDAGSMOEDER, personalehåndbog: process.env.FOLDER_ID_PERSONALEHAANDBOG, persondatapolitik: process.env.FOLDER_ID_PERSONDATAPOLITIK, slettepolitik: process.env.FOLDER_ID_SLETTEPOLITIK, whistleblower: process.env.FOLDER_ID_WHISTLEBLOWER, fjernlager: process.env.FOLDER_ID_FJERNLAGER, kompetenceskema: process.env.FOLDER_ID_KOMPETENCESKEMA, kursusmaterialer: process.env.FOLDER_ID_KURSUSMATERIALER, planlægning: process.env.FOLDER_ID_PLANLAEGNING, bygning: process.env.FOLDER_ID_BYGNING, rådgivere: process.env.FOLDER_ID_RAADGIVERE, systemer: process.env.FOLDER_ID_SYSTEMER, aftalebreve: process.env.FOLDER_ID_AFTALEBREVE, engagement: process.env.FOLDER_ID_ENGAGEMENT, habilitet: process.env.FOLDER_ID_HABILITET, protokollat: process.env.FOLDER_ID_PROTOKOLLAT, tjeklister: process.env.FOLDER_ID_TJEKLISTER, oevrige: process.env.FOLDER_ID_OEVRIGE } };
 const newsListId = process.env.NEWS_LIST_ID;
 const calendarId = process.env.CALENDAR_ID;
 const calendarUser = process.env.CALENDAR_USER_EMAIL;
 const HASH_SECRET = process.env.HASH_SECRET;
-
-if (!supabaseUrl || !supabaseKey || !msalConfig.auth.clientId || !newsListId || !calendarId || !calendarUser || !HASH_SECRET) {
-    console.error("Fejl: En eller flere kritiske Environment Variables mangler.");
-    process.exit(1);
-}
 
 const supabase = createClient(supabaseUrl, supabaseKey);
 const cca = new ConfidentialClientApplication(msalConfig);
@@ -97,7 +92,7 @@ app.get('/api/search', async (req, res) => {
     if (!query) { return res.status(400).json({ message: 'Søgeord mangler.' }); }
     try {
         const graphClient = await getGraphClient();
-        const searchRequest = { requests: [ { entityTypes: ["driveItem"], query: { queryString: `${query} AND siteid:${sharePointConfig.siteId}` }, from: 0, size: 25 }, { entityTypes: ["listItem"], query: { queryString: `${query} AND siteid:${sharePointConfig.siteId}` }, from: 0, size: 10 } ] };
+        const searchRequest = { requests: [ { entityTypes: ["driveItem"], query: { queryString: `${query} AND siteid:${sharePointConfig.siteId}` } }, { entityTypes: ["listItem"], query: { queryString: `${query} AND siteid:${sharePointConfig.siteId}` } } ] };
         const searchResponse = await graphClient.api('/search/query').post(searchRequest);
         const documentResults = searchResponse.value[0].hitsContainers[0].hits.map(hit => ({ type: 'Dokument', title: hit.resource.name, description: 'Dokument fundet i SharePoint.', link: hit.resource.webUrl }));
         const newsResults = searchResponse.value[1].hitsContainers[0].hits.map(hit => ({ type: 'Nyhed', title: hit.resource.fields.title, description: hit.resource.fields.summary, link: '/' }));
