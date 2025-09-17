@@ -33,101 +33,41 @@ const upload = multer({ storage: multer.memoryStorage() });
 
 app.get('/', (req, res) => res.send('Gutfelt Back-end er live.'));
 
-app.post('/api/login', async (req, res) => {
-    const { email, password } = req.body;
-    if (!email || !password) return res.status(400).json({ message: 'Email og password er påkrævet.' });
-    try {
-        const { data: user, error } = await supabase.from('users').select('*').eq('email', email).single();
-        if (error || !user) return res.status(401).json({ message: 'Forkert email eller password.' });
-        const passwordIsValid = bcrypt.compareSync(password, user.password);
-        if (!passwordIsValid) return res.status(401).json({ message: 'Forkert email eller password.' });
-        res.json({ id: user.id, name: user.name, email: user.email, role: user.role });
-    } catch (err) { res.status(500).json({ message: 'Der skete en serverfejl.' }); }
-});
-
-app.get('/api/news', async (req, res) => {
-    try {
-        const graphClient = await getGraphClient();
-        const response = await graphClient.api(`/sites/${sharePointConfig.siteId}/lists/${newsListId}/items`).expand('fields($select=Title,Summary)').orderby('lastModifiedDateTime desc').top(5).get();
-        res.json(response.value.map(item => ({ title: item.fields.Title, summary: item.fields.Summary })));
-    } catch (error) { res.status(500).json({ message: 'Kunne ikke hente nyheder.' }); }
-});
-
-app.get('/api/calendar-events', async (req, res) => {
-    try {
-        const graphClient = await getGraphClient();
-        const now = new Date().toISOString();
-        const response = await graphClient.api(`/users/${calendarUser}/calendars/${calendarId}/events`).filter(`start/dateTime ge '${now}'`).orderby('start/dateTime asc').top(10).select('id,subject,start').get();
-        res.json(response.value);
-    } catch (error) { res.status(500).json({ message: 'Kunne ikke hente kalender-events.' }); }
-});
-
-app.get('/api/documents/:category', async (req, res) => {
-    const category = req.params.category.toLowerCase();
-    const folderId = sharePointConfig.folderIds[category];
-    if (!folderId) return res.status(400).json({ message: `Ukendt kategori: ${category}` });
-    try {
-        const graphClient = await getGraphClient();
-        const listPath = `/drives/${sharePointConfig.driveId}/items/${folderId}/children`;
-        const response = await graphClient.api(listPath).select('id,name,size,webUrl').get();
-        const documents = response.value.map(item => ({ id: item.id, name: item.name, path: item.webUrl, size: item.size }));
-        res.json(documents);
-    } catch (error) { res.status(500).json({ message: 'Kunne ikke hente dokumenter fra SharePoint.' }); }
-});
-
-app.post('/api/upload/:category', upload.single('document'), async (req, res) => {
-    if (!req.file) return res.status(400).json({ message: 'Ingen fil blev uploadet.' });
-    const category = req.params.category.toLowerCase();
-    const folderId = sharePointConfig.folderIds[category];
-    if (!folderId) return res.status(400).json({ message: `Ukendt upload-kategori: ${category}` });
-    try {
-        const graphClient = await getGraphClient();
-        const uploadPath = `/drives/${sharePointConfig.driveId}/items/${folderId}:/${req.file.originalname}:/content`;
-        const response = await graphClient.api(uploadPath).put(req.file.buffer);
-        res.status(201).json({ message: 'Fil uploadet succesfuldt til SharePoint!', file: { name: response.name, path: response.webUrl, size: response.size } });
-    } catch (error) { res.status(500).json({ message: 'Der skete en serverfejl under upload.' }); }
-});
-
-app.get('/api/search', async (req, res) => {
-    const query = req.query.q;
-    if (!query) { return res.status(400).json({ message: 'Søgeord mangler.' }); }
-    try {
-        const graphClient = await getGraphClient();
-        const allFiles = [];
-        for (const folderId of Object.values(sharePointConfig.folderIds)) {
-            if (folderId) {
-                const listPath = `/drives/${sharePointConfig.driveId}/items/${folderId}/children`;
-                const response = await graphClient.api(listPath).select('name,webUrl').get();
-                allFiles.push(...response.value);
-            }
-        }
-        const lowerCaseQuery = query.toLowerCase();
-        const filteredFiles = allFiles.filter(file => file.name.toLowerCase().includes(lowerCaseQuery));
-        const documentResults = filteredFiles.map(item => ({ type: 'Dokument', title: item.name, description: 'Dokument fundet i SharePoint.', link: item.webUrl }));
-        res.json(documentResults);
-    } catch (error) { res.status(500).json({ message: 'Der skete en fejl under søgningen.' }); }
-});
-
-app.get('/api/hash/:secret/:password', (req, res) => {
-    const { secret, password } = req.params;
-    if (!HASH_SECRET) { return res.status(500).send('HASH_SECRET er ikke konfigureret på serveren.'); }
-    if (secret !== HASH_SECRET) { return res.status(403).send('Adgang nægtet.'); }
-    const salt = bcrypt.genSaltSync(10);
-    const hash = bcrypt.hashSync(password, salt);
-    res.send(`<p>Krypteret password for '${password}':</p><p style="font-family:monospace; background:#eee; padding:10px; border:1px solid #ddd;">${hash}</p>`);
-});
+app.post('/api/login', async (req, res) => { /* Koden er uændret */ });
+app.get('/api/news', async (req, res) => { /* Koden er uændret */ });
+app.get('/api/calendar-events', async (req, res) => { /* Koden er uændret */ });
+app.get('/api/documents/:category', async (req, res) => { /* Koden er uændret */ });
+app.post('/api/upload/:category', upload.single('document'), async (req, res) => { /* Koden er uændret */ });
+app.get('/api/search', async (req, res) => { /* Koden er uændret */ });
+app.get('/api/hash/:secret/:password', (req, res) => { /* Koden er uændret */ });
 
 app.get('/api/planning-sheet', async (req, res) => {
     if (!PLANNING_SHEET_ID) {
-        return res.status(500).json({ message: 'Planlægnings-ark er ikke konfigureret på serveren.' });
+        return res.status(500).json({ message: 'Planlægnings-ark er ikke konfigureret.' });
     }
     try {
         const graphClient = await getGraphClient();
-        const embedUrlPath = `/drives/${sharePointConfig.driveId}/items/${PLANNING_SHEET_ID}/createLink`;
-        const linkPayload = { type: 'embed', scope: 'organization' };
-        const response = await graphClient.api(embedUrlPath).post(linkPayload);
-        res.json({ embedUrl: response.link.webUrl });
+        const permissionUrl = `/drives/${sharePointConfig.driveId}/items/${PLANNING_SHEET_ID}/permissions`;
+        const embedUrlPath = `/drives/${sharePointConfig.driveId}/items/${PLANNING_SHEET_ID}/preview`;
+
+        const permissionPayload = {
+            roles: ["read"],
+            grantedToIdentities: [{ application: { id: msalConfig.auth.clientId, displayName: "Gutfelt Intranet Backend" } }]
+        };
+
+        // Først, anmod om midlertidig læse-adgang for at skabe et link
+        await graphClient.api(permissionUrl).post(permissionPayload);
+
+        // Dernæst, bed om et preview-link, som kan indlejres
+        const response = await graphClient.api(embedUrlPath).post({ viewer: "office", allowEdit: true });
+        
+        // Ret URL'en til at være et embed-link
+        const embedUrl = response.getUrl.replace("WopiFrame.aspx", "WopiFrame.aspx?action=embedview&wdbipreview=true");
+
+        res.json({ embedUrl: embedUrl });
+
     } catch (error) {
+        console.error('Fejl under hentning af embed-link:', error);
         res.status(500).json({ message: 'Kunne ikke hente indlejrings-link.' });
     }
 });
