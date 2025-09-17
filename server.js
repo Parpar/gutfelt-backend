@@ -17,6 +17,7 @@ const newsListId = process.env.NEWS_LIST_ID;
 const calendarId = process.env.CALENDAR_ID;
 const calendarUser = process.env.CALENDAR_USER_EMAIL;
 const HASH_SECRET = process.env.HASH_SECRET;
+const PLANNING_SHEET_ID = process.env.PLANNING_SHEET_ID;
 
 const supabase = createClient(supabaseUrl, supabaseKey);
 const cca = new ConfidentialClientApplication(msalConfig);
@@ -114,6 +115,21 @@ app.get('/api/hash/:secret/:password', (req, res) => {
     const salt = bcrypt.genSaltSync(10);
     const hash = bcrypt.hashSync(password, salt);
     res.send(`<p>Krypteret password for '${password}':</p><p style="font-family:monospace; background:#eee; padding:10px; border:1px solid #ddd;">${hash}</p>`);
+});
+
+app.get('/api/planning-sheet', async (req, res) => {
+    if (!PLANNING_SHEET_ID) {
+        return res.status(500).json({ message: 'Planlægnings-ark er ikke konfigureret på serveren.' });
+    }
+    try {
+        const graphClient = await getGraphClient();
+        const embedUrlPath = `/drives/${sharePointConfig.driveId}/items/${PLANNING_SHEET_ID}/createLink`;
+        const linkPayload = { type: 'embed', scope: 'organization' };
+        const response = await graphClient.api(embedUrlPath).post(linkPayload);
+        res.json({ embedUrl: response.link.webUrl });
+    } catch (error) {
+        res.status(500).json({ message: 'Kunne ikke hente indlejrings-link.' });
+    }
 });
 
 const PORT = process.env.PORT || 8000;
