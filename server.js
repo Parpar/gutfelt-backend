@@ -47,11 +47,7 @@ app.post('/api/login', async (req, res) => {
 app.get('/api/news', async (req, res) => {
     try {
         const graphClient = await getGraphClient();
-        const response = await graphClient.api(`/sites/${sharePointConfig.siteId}/lists/${newsListId}/items`)
-            .expand('fields($select=Title,Summary)')
-            .orderby('lastModifiedDateTime desc')
-            .top(3)
-            .get();
+        const response = await graphClient.api(`/sites/${sharePointConfig.siteId}/lists/${newsListId}/items`).expand('fields($select=Title,Summary)').orderby('lastModifiedDateTime desc').top(5).get();
         res.json(response.value.map(item => ({ title: item.fields.Title, summary: item.fields.Summary })));
     } catch (error) { res.status(500).json({ message: 'Kunne ikke hente nyheder.' }); }
 });
@@ -60,7 +56,7 @@ app.get('/api/calendar-events', async (req, res) => {
     try {
         const graphClient = await getGraphClient();
         const now = new Date().toISOString();
-        const response = await graphClient.api(`/users/${calendarUser}/calendars/${calendarId}/events`).filter(`start/dateTime ge '${now}'`).orderby('start/dateTime asc').top(3).select('id,subject,start').get();
+        const response = await graphClient.api(`/users/${calendarUser}/calendars/${calendarId}/events`).filter(`start/dateTime ge '${now}'`).orderby('start/dateTime asc').top(10).select('id,subject,start').get();
         res.json(response.value);
     } catch (error) { res.status(500).json({ message: 'Kunne ikke hente kalender-events.' }); }
 });
