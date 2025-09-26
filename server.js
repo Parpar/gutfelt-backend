@@ -123,10 +123,9 @@ app.get('/api/planning-sheet', async (req, res) => {
     }
     try {
         const graphClient = await getGraphClient();
-        const embedUrlPath = `/drives/${sharePointConfig.driveId}/items/${PLANNING_SHEET_ID}/createLink`;
-        const linkPayload = { type: 'edit', scope: 'organization' };
-        const response = await graphClient.api(embedUrlPath).post(linkPayload);
-        const embedUrl = `${response.link.webUrl}&action=embedview`;
+        const itemUrl = `/drives/${sharePointConfig.driveId}/items/${PLANNING_SHEET_ID}`;
+        const response = await graphClient.api(itemUrl).select('webUrl').get();
+        const embedUrl = `${response.webUrl}?action=embedview&wdbipreview=true`;
         res.json({ embedUrl: embedUrl });
     } catch (error) {
         console.error('Fejl under hentning af embed-link:', error);
