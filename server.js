@@ -91,30 +91,16 @@ app.post('/api/upload/:category', upload.single('document'), async (req, res) =>
 
 app.get('/api/partners/:category', async (req, res) => {
     const category = req.params.category;
-    console.log(`[LOG] Modtog anmodning for partner-kategori: ${category}`);
-
-    if (!category) {
-        console.log("[FEJL] Kategori mangler i anmodning.");
-        return res.status(400).json({ message: `Kategori mangler.` });
-    }
+    if (!category) return res.status(400).json({ message: `Kategori mangler.` });
     try {
-        console.log("[LOG] Opretter Graph Client...");
         const graphClient = await getGraphClient();
-        console.log("[LOG] Forsøger at hente alle items fra partner-listen...");
         const response = await graphClient.api(`/sites/${sharePointConfig.siteId}/lists/${PARTNERS_LIST_ID}/items`)
             .expand('fields')
+            .filter(`fields/Kategori eq '${decodeURIComponent(category)}'`)
             .get();
-        
-        console.log(`[LOG] Modtog ${response.value.length} partnere fra SharePoint.`);
-        const allPartners = response.value.map(item => item.fields);
-        
-        console.log(`[LOG] Filtrerer for kategori: '${category}'`);
-        const filteredPartners = allPartners.filter(p => p.Kategori === category);
-        
-        console.log(`[LOG] Fandt ${filteredPartners.length} matchende partnere.`);
-        res.json(filteredPartners);
+        const partners = response.value.map(item => item.fields);
+        res.json(partners);
     } catch (error) {
-        console.error("[KRITISK FEJL] Fejl under hentning af partnere:", error);
         res.status(500).json({ message: 'Kunne ikke hente partnere.' });
     }
 });
