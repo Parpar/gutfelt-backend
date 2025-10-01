@@ -89,6 +89,22 @@ app.post('/api/upload/:category', upload.single('document'), async (req, res) =>
     } catch (error) { res.status(500).json({ message: 'Der skete en serverfejl under upload.' }); }
 });
 
+app.get('/api/partners/:category', async (req, res) => {
+    const category = req.params.category;
+    if (!category) return res.status(400).json({ message: `Kategori mangler.` });
+    try {
+        const graphClient = await getGraphClient();
+        const response = await graphClient.api(`/sites/${sharePointConfig.siteId}/lists/${PARTNERS_LIST_ID}/items`)
+            .expand('fields($select=Title,Kontaktperson,Email,Telefon,Noter,Kategori)')
+            .filter(`fields/Kategori eq '${category}'`)
+            .get();
+        const partners = response.value.map(item => item.fields);
+        res.json(partners);
+    } catch (error) {
+        res.status(500).json({ message: 'Kunne ikke hente partnere.' });
+    }
+});
+
 app.get('/api/search', async (req, res) => {
     const query = req.query.q;
     if (!query) { return res.status(400).json({ message: 'Søgeord mangler.' }); }
@@ -133,21 +149,5 @@ app.get('/api/planning-sheet', async (req, res) => {
     }
 });
 
-app.get('/api/partners/:category', async (req, res) => {
-    const category = req.params.category;
-    if (!category) return res.status(400).json({ message: `Kategori mangler.` });
-    try {
-        const graphClient = await getGraphClient();
-        const response = await graphClient.api(`/sites/${sharePointConfig.siteId}/lists/${PARTNERS_LIST_ID}/items`)
-            .expand('fields($select=Title,Kontaktperson,Email,Telefon,Noter,Kategori)')
-            .filter(`fields/Kategori eq '${category}'`)
-            .get();
-        const partners = response.value.map(item => item.fields);
-        res.json(partners);
-    } catch (error) {
-        res.status(500).json({ message: 'Kunne ikke hente partnere.' });
-    }
-});
-
 const PORT = process.env.PORT || 8000;
-app.listen(PORT, () => console.log(`Back-end serveren kører nu på port ${PORT}`));
+app.listen(PORT, () => console.log(`Back-end serveren kører nu på  port ${PORT}`));
