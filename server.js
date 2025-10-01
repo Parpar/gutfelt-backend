@@ -18,6 +18,7 @@ const calendarId = process.env.CALENDAR_ID;
 const calendarUser = process.env.CALENDAR_USER_EMAIL;
 const HASH_SECRET = process.env.HASH_SECRET;
 const PLANNING_SHEET_ID = process.env.PLANNING_SHEET_ID;
+const PARTNERS_LIST_ID = process.env.PARTNERS_LIST_ID;
 
 const supabase = createClient(supabaseUrl, supabaseKey);
 const cca = new ConfidentialClientApplication(msalConfig);
@@ -123,12 +124,28 @@ app.get('/api/planning-sheet', async (req, res) => {
     }
     try {
         const graphClient = await getGraphClient();
-        const embedUrlPath = `/drives/${sharePointConfig.driveId}/items/${PLANNING_SHEET_ID}/preview`;
-        const linkPayload = { allowEdit: true };
-        const response = await graphClient.api(embedUrlPath).post(linkPayload);
-        res.json({ embedUrl: response.getUrl });
+        const itemUrl = `/drives/${sharePointConfig.driveId}/items/${PLANNING_SHEET_ID}`;
+        const response = await graphClient.api(itemUrl).select('webUrl').get();
+        const embedUrl = `${response.webUrl}?action=embedview`;
+        res.json({ embedUrl: embedUrl });
     } catch (error) {
         res.status(500).json({ message: 'Kunne ikke hente indlejrings-link.' });
+    }
+});
+
+app.get('/api/partners/:category', async (req, res) => {
+    const category = req.params.category;
+    if (!category) return res.status(400).json({ message: `Kategori mangler.` });
+    try {
+        const graphClient = await getGraphClient();
+        const response = await graphClient.api(`/sites/${sharePointConfig.siteId}/lists/${PARTNERS_LIST_ID}/items`)
+            .expand('fields($select=Title,Kontaktperson,Email,Telefon,Noter,Kategori)')
+            .filter(`fields/Kategori eq '${category}'`)
+            .get();
+        const partners = response.value.map(item => item.fields);
+        res.json(partners);
+    } catch (error) {
+        res.status(500).json({ message: 'Kunne ikke hente partnere.' });
     }
 });
 
