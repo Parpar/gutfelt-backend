@@ -95,11 +95,11 @@ app.get('/api/partners/:category', async (req, res) => {
     try {
         const graphClient = await getGraphClient();
         const response = await graphClient.api(`/sites/${sharePointConfig.siteId}/lists/${PARTNERS_LIST_ID}/items`)
-            .expand('fields($select=Title,Kontaktperson,Telefon,Email,Noter,Kategori)')
-            .filter(`fields/Kategori eq '${category}'`)
+            .expand('fields')
             .get();
-        const partners = response.value.map(item => item.fields);
-        res.json(partners);
+        const allPartners = response.value.map(item => item.fields);
+        const filteredPartners = allPartners.filter(p => p.Kategori === category);
+        res.json(filteredPartners);
     } catch (error) {
         res.status(500).json({ message: 'Kunne ikke hente partnere.' });
     }
