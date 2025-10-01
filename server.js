@@ -12,12 +12,10 @@ require('isomorphic-fetch');
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_KEY;
 const msalConfig = { auth: { clientId: process.env.CLIENT_ID, authority: `https://login.microsoftonline.com/${process.env.TENANT_ID}`, clientSecret: process.env.CLIENT_SECRET } };
-const sharePointConfig = { siteId: process.env.SITE_ID, driveId: process.env.DRIVE_ID, folderIds: { fakturering: process.env.FOLDER_ID_FAKTURERING, kickoff: process.env.FOLDER_ID_KICKOFF, kundehåndtering: process.env.FOLDER_ID_KUNDEHAANDTERING, kvalitetsstyring: process.env.FOLDER_ID_KVALITETSSTYRING, mandagsøder: process.env.FOLDER_ID_MANDAGSMOEDER, personalehåndbog: process.env.FOLDER_ID_PERSONALEHAANDBOG, persondatapolitik: process.env.FOLDER_ID_PERSONDATAPOLITIK, slettepolitik: process.env.FOLDER_ID_SLETTEPOLITIK, whistleblower: process.env.FOLDER_ID_WHISTLEBLOWER, fjernlager: process.env.FOLDER_ID_FJERNLAGER, kompetenceskema: process.env.FOLDER_ID_KOMPETENCESKEMA, kursusmaterialer: process.env.FOLDER_ID_KURSUSMATERIALER, planlægning: process.env.FOLDER_ID_PLANLAEGNING, bygning: process.env.FOLDER_ID_BYGNING, rådgivere: process.env.FOLDER_ID_RAADGIVERE, systemer: process.env.FOLDER_ID_SYSTEMER, aftalebreve: process.env.FOLDER_ID_AFTALEBREVE, engagement: process.env.FOLDER_ID_ENGAGEMENT, habilitet: process.env.FOLDER_ID_HABILITET, protokollat: process.env.FOLDER_ID_PROTOKOLLAT, tjeklister: process.env.FOLDER_ID_TJEKLISTER, oevrige: process.env.FOLDER_ID_OEVRIGE, forsikringer: process.env.FOLDER_ID_FORSIKRINGER, hvidvask: process.env.FOLDER_ID_HVIDVASK } };
+const sharePointConfig = { siteId: process.env.SITE_ID };
 const newsListId = process.env.NEWS_LIST_ID;
 const calendarId = process.env.CALENDAR_ID;
 const calendarUser = process.env.CALENDAR_USER_EMAIL;
-const HASH_SECRET = process.env.HASH_SECRET;
-const PLANNING_SHEET_ID = process.env.PLANNING_SHEET_ID;
 const PARTNERS_LIST_ID = process.env.PARTNERS_LIST_ID;
 
 const supabase = createClient(supabaseUrl, supabaseKey);
@@ -30,7 +28,6 @@ async function getGraphClient() {
 const app = express();
 app.use(cors());
 app.use(express.json());
-const upload = multer({ storage: multer.memoryStorage() });
 
 app.get('/', (req, res) => res.send('Gutfelt Back-end er live.'));
 
@@ -63,32 +60,6 @@ app.get('/api/calendar-events', async (req, res) => {
     } catch (error) { res.status(500).json({ message: 'Kunne ikke hente kalender-events.' }); }
 });
 
-app.get('/api/documents/:category', async (req, res) => {
-    const category = req.params.category.toLowerCase();
-    const folderId = sharePointConfig.folderIds[category];
-    if (!folderId) return res.status(400).json({ message: `Ukendt kategori: ${category}` });
-    try {
-        const graphClient = await getGraphClient();
-        const listPath = `/drives/${sharePointConfig.driveId}/items/${folderId}/children`;
-        const response = await graphClient.api(listPath).select('id,name,size,webUrl').get();
-        const documents = response.value.map(item => ({ id: item.id, name: item.name, path: item.webUrl, size: item.size }));
-        res.json(documents);
-    } catch (error) { res.status(500).json({ message: 'Kunne ikke hente dokumenter fra SharePoint.' }); }
-});
-
-app.post('/api/upload/:category', upload.single('document'), async (req, res) => {
-    if (!req.file) return res.status(400).json({ message: 'Ingen fil blev uploadet.' });
-    const category = req.params.category.toLowerCase();
-    const folderId = sharePointConfig.folderIds[category];
-    if (!folderId) return res.status(400).json({ message: `Ukendt upload-kategori: ${category}` });
-    try {
-        const graphClient = await getGraphClient();
-        const uploadPath = `/drives/${sharePointConfig.driveId}/items/${folderId}:/${req.file.originalname}:/content`;
-        const response = await graphClient.api(uploadPath).put(req.file.buffer);
-        res.status(201).json({ message: 'Fil uploadet succesfuldt til SharePoint!', file: { name: response.name, path: response.webUrl, size: response.size } });
-    } catch (error) { res.status(500).json({ message: 'Der skete en serverfejl under upload.' }); }
-});
-
 app.get('/api/partners/:category', async (req, res) => {
     const category = req.params.category;
     if (!category) return res.status(400).json({ message: `Kategori mangler.` });
@@ -101,51 +72,8 @@ app.get('/api/partners/:category', async (req, res) => {
         const filteredPartners = allPartners.filter(p => p.Kategori === category);
         res.json(filteredPartners);
     } catch (error) {
+        console.error("Fejl i /api/partners:", error);
         res.status(500).json({ message: 'Kunne ikke hente partnere.' });
-    }
-});
-
-app.get('/api/search', async (req, res) => {
-    const query = req.query.q;
-    if (!query) { return res.status(400).json({ message: 'Søgeord mangler.' }); }
-    try {
-        const graphClient = await getGraphClient();
-        const allFiles = [];
-        for (const folderId of Object.values(sharePointConfig.folderIds)) {
-            if (folderId) {
-                const listPath = `/drives/${sharePointConfig.driveId}/items/${folderId}/children`;
-                const response = await graphClient.api(listPath).select('name,webUrl').get();
-                allFiles.push(...response.value);
-            }
-        }
-        const lowerCaseQuery = query.toLowerCase();
-        const filteredFiles = allFiles.filter(file => file.name.toLowerCase().includes(lowerCaseQuery));
-        const documentResults = filteredFiles.map(item => ({ type: 'Dokument', title: item.name, description: 'Dokument fundet i SharePoint.', link: item.webUrl }));
-        res.json(documentResults);
-    } catch (error) { res.status(500).json({ message: 'Der skete en fejl under søgningen.' }); }
-});
-
-app.get('/api/hash/:secret/:password', (req, res) => {
-    const { secret, password } = req.params;
-    if (!HASH_SECRET) { return res.status(500).send('HASH_SECRET er ikke konfigureret på serveren.'); }
-    if (secret !== HASH_SECRET) { return res.status(403).send('Adgang nægtet.'); }
-    const salt = bcrypt.genSaltSync(10);
-    const hash = bcrypt.hashSync(password, salt);
-    res.send(`<p>Krypteret password for '${password}':</p><p style="font-family:monospace; background:#eee; padding:10px; border:1px solid #ddd;">${hash}</p>`);
-});
-
-app.get('/api/planning-sheet', async (req, res) => {
-    if (!PLANNING_SHEET_ID) {
-        return res.status(500).json({ message: 'Planlægnings-ark er ikke konfigureret på serveren.' });
-    }
-    try {
-        const graphClient = await getGraphClient();
-        const itemUrl = `/drives/${sharePointConfig.driveId}/items/${PLANNING_SHEET_ID}`;
-        const response = await graphClient.api(itemUrl).select('webUrl').get();
-        const embedUrl = `${response.webUrl}?action=embedview`;
-        res.json({ embedUrl: embedUrl });
-    } catch (error) {
-        res.status(500).json({ message: 'Kunne ikke hente indlejrings-link.' });
     }
 });
 
